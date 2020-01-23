@@ -38,12 +38,16 @@
 package org.jooq.mcve.test;
 
 import static org.jooq.mcve.Tables.TEST;
-import static org.junit.Assert.assertEquals;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.SQLException;
+import java.util.List;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 import org.jooq.DSLContext;
+import org.jooq.Result;
 import org.jooq.impl.DSL;
 import org.jooq.mcve.tables.records.TestRecord;
 
@@ -53,32 +57,60 @@ import org.junit.Test;
 
 public class MCVETest {
 
-    Connection connection;
+    Connection transaction;
     DSLContext ctx;
 
     @Before
     public void setup() throws Exception {
-        connection = DriverManager.getConnection("jdbc:h2:~/mcve", "sa", "");
-        ctx = DSL.using(connection);
+        transaction = DriverManager.getConnection("jdbc:h2:~/mcve", "sa", "");
+        ctx = DSL.using(transaction);
+        Result<TestRecord> result = ctx.fetch(TEST);
+        
+        if (result.isEmpty()) {
+            ctx.insertInto(TEST)
+                    .columns(TEST.VALUE)
+                    .values(42).execute();
+        }
+        System.out.println(" Created ------");
     }
 
     @After
     public void after() throws Exception {
         ctx = null;
-        connection.close();
-        connection = null;
+        transaction.close();
+        transaction = null;
+        System.out.println(" Closed ------ ");
     }
 
     @Test
-    public void mcveTest() {
-        TestRecord result =
-        ctx.insertInto(TEST)
-           .columns(TEST.VALUE)
-           .values(42)
-           .returning(TEST.ID)
-           .fetchOne();
+    public void mcveTest() throws Exception {
 
-        result.refresh();
-        assertEquals(42, (int) result.getValue());
+        try {
+            List<TestRecord> result = ctx.fetch(TEST).into(TEST);
+            TestRecord urs = result.get(0);
+            delete(urs);
+            update(urs);
+        } catch (SQLException ex) {
+            Logger.getLogger(MCVETest.class.getName()).log(Level.SEVERE, null, ex);
+        }
+
+    }
+
+    private void delete(TestRecord urs) throws Exception {
+        transaction.setAutoCommit(false);
+        ctx.batchDelete(urs).execute();
+        transaction.rollback();
+        transaction.commit();
+        transaction.setAutoCommit(true);
+//        after();
+//        setup();
+    }
+
+    private void update(TestRecord urs) throws SQLException {
+        transaction.setAutoCommit(false);
+        urs.setValue(455);
+        ctx.batchStore(urs).execute();
+        transaction.commit();
+        transaction.setAutoCommit(true);
     }
 }
